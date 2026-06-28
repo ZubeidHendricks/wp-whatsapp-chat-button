@@ -16,7 +16,77 @@
 defined( 'ABSPATH' ) || exit;
 
 if ( ! defined( 'ZUB_FACTORY_VERSION' ) ) {
-	define( 'ZUB_FACTORY_VERSION', '1.0.0' );
+	define( 'ZUB_FACTORY_VERSION', '1.1.0' );
+}
+
+if ( ! function_exists( 'zub_factory_freemius_boot' ) ) {
+
+	/**
+	 * Bootstrap Freemius for a factory plugin — but only if it's ready.
+	 *
+	 * Zero hardcoding. A plugin becomes monetizable the moment two files exist:
+	 *   - includes/freemius/start.php   (the Freemius SDK; run bin/add-freemius.sh)
+	 *   - freemius-config.php           (returns array: id, public_key, plan, …)
+	 * Until then this is a no-op and the plugin runs free-only — nothing breaks.
+	 *
+	 * Once wired, it flips the factory Pro gate ('{slug}_is_pro') based on the
+	 * visitor's actual license, so every gated feature unlocks automatically.
+	 *
+	 * @param string $slug Plugin slug (also the filter prefix).
+	 * @param string $dir  Plugin directory, trailing slash.
+	 * @param string $file Main plugin file.
+	 * @return object|null Freemius instance, or null in free-only mode.
+	 */
+	function zub_factory_freemius_boot( $slug, $dir, $file ) {
+		$config_file = $dir . 'freemius-config.php';
+		$sdk         = $dir . 'includes/freemius/start.php';
+
+		if ( ! file_exists( $config_file ) || ! file_exists( $sdk ) ) {
+			return null; // Free-only mode.
+		}
+
+		$config = include $config_file;
+		if ( ! is_array( $config ) || empty( $config['id'] ) || empty( $config['public_key'] ) ) {
+			return null;
+		}
+
+		require_once $sdk;
+
+		if ( ! function_exists( 'fs_dynamic_init' ) ) {
+			return null;
+		}
+
+		$instance = fs_dynamic_init(
+			array(
+				'id'                  => $config['id'],
+				'slug'                => $slug,
+				'type'                => 'plugin',
+				'public_key'          => $config['public_key'],
+				'is_premium'          => false,
+				'has_premium_version' => true,
+				'has_paid_plans'      => true,
+				'menu'                => array(
+					'slug'    => $slug,
+					'account' => true,
+					'contact' => true,
+					'support' => false,
+					'parent'  => array( 'slug' => 'options-general.php' ),
+				),
+			)
+		);
+
+		// Drive the factory Pro gate from the real license state.
+		add_filter(
+			$slug . '_is_pro',
+			function ( $is_pro ) use ( $instance ) {
+				return $instance->is_paying() || $instance->can_use_premium_code();
+			}
+		);
+
+		do_action( $slug . '_fs_loaded', $instance );
+
+		return $instance;
+	}
 }
 
 if ( ! class_exists( 'ZubFactory_Plugin' ) ) {
@@ -42,6 +112,9 @@ if ( ! class_exists( 'ZubFactory_Plugin' ) ) {
 		/** @var ZubFactory_Settings|null */
 		public $settings = null;
 
+		/** @var object|null Freemius instance, when wired. */
+		public $fs = null;
+
 		/**
 		 * @param string $file __FILE__ of the main plugin file.
 		 */
@@ -58,6 +131,9 @@ if ( ! class_exists( 'ZubFactory_Plugin' ) ) {
 
 		/** Call once from the main file to start the plugin. */
 		public function boot() {
+			// Wire monetization first so the Pro gate is live before hooks run.
+			$this->fs = zub_factory_freemius_boot( $this->slug, $this->dir(), $this->file );
+
 			if ( $this->settings_fields() ) {
 				$this->settings = new ZubFactory_Settings(
 					$this->slug,
