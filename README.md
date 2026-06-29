@@ -1,5 +1,7 @@
 # WhatsApp Chat Button
 
+🌐 **[Browse all plugins](https://zubeidhendricks.github.io/wp-plugins-site/)** · ⬇️ **[Download .zip](https://github.com/ZubeidHendricks/wp-whatsapp-chat-button/releases/latest/download/whatsapp-chat-button.zip)**
+
 A floating WhatsApp click-to-chat button so visitors can message you in one tap.
 Part of the [Zub Plugin Factory](https://github.com/ZubeidHendricks/wp-plugin-factory).
 
